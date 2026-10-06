@@ -31,9 +31,13 @@ func Read(data []byte, c *Counter) ([]Entry, error) {
 	if len(data) < 12 || string(data[0:4]) != Sig {
 		return nil, errors.New("bad-header")
 	}
+	if binary.BigEndian.Uint32(data[4:8]) != 2 {
+		return nil, errors.New("unsupported-version")
+	}
+	count := int(binary.BigEndian.Uint32(data[8:12]))
 	off := 12
 	out := []Entry{}
-	for off+EntSize <= len(data) {
+	for len(out) < count && off+EntSize <= len(data) {
 		c.Scanned++
 		mode := binary.BigEndian.Uint32(data[off+24 : off+28])
 		size := binary.BigEndian.Uint32(data[off+36 : off+40])
@@ -45,19 +49,19 @@ func Read(data []byte, c *Counter) ([]Entry, error) {
 		}
 		name := string(data[off+EntSize : off+EntSize+nameLen])
 		out = append(out, Entry{Path: name, Mode: mode, Size: size, SHA: sha[:8]})
-		off += EntSize + nameLen
+		off += (EntSize + nameLen + 7) / 8 * 8
 	}
 	return out, nil
 }
 
 // Lookup 按路径取记录。
 func Lookup(data []byte, paths []string, c *Counter) (map[string]Entry, error) {
+	entries, err := Read(data, c)
+	if err != nil {
+		return nil, err
+	}
 	found := map[string]Entry{}
 	for _, want := range paths {
-		entries, err := Read(data, c)
-		if err != nil {
-			return nil, err
-		}
 		for _, entry := range entries {
 			if entry.Path == want {
 				found[want] = entry
